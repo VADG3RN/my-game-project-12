@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Плиточки</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <h1>Плиточки</h1>
+    <div id="easter-egg" title="Пасхалка разработчика" onclick="playEasterEgg()">🥚</div>
+    <div id="tutorial-button" title="Показать подсказку" onclick="showHint()">❓</div>
+    <div id="hint">
+        <b style="display: block; text-align: center;">Управление</b>
+        Кликайте на плитки или используйте стрелки.
+    </div>
+    <div id="game-container">
+        <div id="main-menu">
+            <button onclick="playButtonSound(); continueGameMain()" id="continue-main" style="display: none;">Продолжить</button>
+            <button onclick="playButtonSound(); showNewGameMenu()">Новая игра</button>
+        </div>
+        <div id="new-game-menu">
+            <div class="menu-item">Имя игрока:<br><input type="text" id="player-name" maxlength="20" placeholder="Введите имя"></div>
+            <div class="menu-item">Сложность:<br><select id="difficulty">
+                <option value="3">Легкий (3x3)</option>
+                <option value="4">Средний (4x4)</option>
+                <option value="5">Сложный (5x5)</option>
+            </select></div>
+            <div class="menu-item button-item"><button onclick="playButtonSound(); startNewGame()">Начать игру</button></div>
+        </div>
+        <div id="player-info"></div>
+        <div id="game-board"></div>
+        <div id="game-menu">
+            <button onclick="playButtonSound(); resetGame()">Сброс</button>
+            <button onclick="playButtonSound(); exitToMenu()">Выход</button>
+        </div>
+        <div id="info">
+            <p>Ходы: <span id="moves">0</span></p>
+            <p>Время: <span id="timer">00:00</span></p>
+        </div>
+        <div id="tutorial" class="hidden">
+            <div id="tutorial-content">
+                <h2>Добро пожаловать в Плиточки!</h2>
+                <p>Кликайте на плитки или используйте стрелки на клавиатуре, чтобы собрать картинку.</p>
+                <p>Цель: расположить плитки в правильном порядке.</p>
+                <button onclick="playButtonSound(); closeTutorial()">Продолжить</button>
+            </div>
+        </div>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/howler/2.2.3/howler.min.js"></script>
+    <script>
+        // Инициализация переменных: ссылки на DOM-элементы и игровые состояния
+        const board = document.getElementById('game-board');
+        const movesDisplay = document.getElementById('moves');
+        const timerDisplay = document.getElementById('timer');
+        const playerNameInput = document.getElementById('player-name');
+        const difficultySelect = document.getElementById('difficulty');
+        const tutorial = document.getElementById('tutorial');
+        const mainMenu = document.getElementById('main-menu');
+        const newGameMenu = document.getElementById('new-game-menu');
+        const gameMenu = document.getElementById('game-menu');
+        const continueMainButton = document.getElementById('continue-main');
+        const hint = document.getElementById('hint');
+        const tutorialButton = document.getElementById('tutorial-button');
+        const playerInfo = document.getElementById('player-info');
+        const gameContainer = document.getElementById('game-container');
+        let tiles = [];
+        let size = 3; // Размер сетки по умолчанию
+        let moves = 0; // Счётчик ходов для системы очков
+        let timer = 0; // Таймер для отслеживания времени прохождения
+        let timerInterval = null; // Интервал для таймера
+        let emptyIndex = size * size - 1; // Индекс пустой плитки
+        let isGameActive = false; // Состояние игры
+        let currentImageUrl = ''; // URL текущего изображения
+        let hintTimeout = null; // Таймаут для подсказки
+
+        // Инициализация звуков с использованием Howler.js (сторонняя библиотека для звука)
+        const moveSound = new Howl({
+            src: ['https://www.soundjay.com/buttons/sounds/button-11.mp3'],
+            volume: 1.0
+        }); // Звук перемещения плитки
+        const winSound = new Howl({
+            src: ['https://www.soundjay.com/misc/sounds/dream-harp-08.mp3'],
+            volume: 1.0
+        }); // Звук победы
+        const easterSound = new Howl({
+            src: ['https://www.soundjay.com/misc/sounds/magic-chime-01.mp3'],
+            volume: 1.0
+        }); // Звук пасхалки
+        const buttonSound = new Howl({
+            src: ['https://www.soundjay.com/buttons/button-1.mp3'],
+            volume: 0.8
+        }); // Звук нажатия кнопок
+        const hintSound = new Howl({
+            src: ['https://www.soundjay.com/buttons/sounds/button-09a.mp3'],
+            volume: 0.9
+        }); // Звук подсказки
+        const backgroundMusic = new Howl({
+            src: ['https://www.soundjay.com/free-music/sounds/heart-of-the-sea-01.mp3'],
+            loop: true,
+            volume: 0.5,
+            preload: true
+        }); // Фоновая музыка
+
+        // Обработчики загрузки и ошибок звуков
+        moveSound.on('load', () => console.log('Звук перемещения загружен'));
+        winSound.on('load', () => console.log('Звук победы загружен'));
+        easterSound.on('load', () => console.log('Звук пасхалки загружен'));
+        buttonSound.on('load', () => console.log('Звук кнопки загружен'));
+        hintSound.on('load', () => console.log('Звук подсказки загружен'));
+        backgroundMusic.on('load', () => console.log('Фоновая музыка загружена'));
+        backgroundMusic.on('loaderror', (id, err) => console.error('Ошибка загрузки фоновой музыки:', err));
+        moveSound.on('playerror', (id, err) => console.error('Ошибка воспроизведения moveSound:', err));
+        winSound.on('playerror', (id, err) => console.error('Ошибка воспроизведения winSound:', err));
+        easterSound.on('playerror', (id, err) => console.error('Ошибка воспроизведения easterSound:', err));
+        buttonSound.on('playerror', (id, err) => console.error('Ошибка воспроизведения buttonSound:', err));
+        hintSound.on('playerror', (id, err) => console.error('Ошибка воспроизведения hintSound:', err));
+        backgroundMusic.on('playerror', (id, err) => console.error('Ошибка воспроизведения backgroundMusic:', err));
+        moveSound.load();
+        winSound.load();
+        easterSound.load();
+        buttonSound.load();
+        hintSound.load();
+        backgroundMusic.load();
+
+        // Функция воспроизведения звука с обработкой ошибок
+        function playSound(sound) {
+            try {
+                const soundId = sound.play();
+                if (!soundId) {
+                    console.warn('Не удалось воспроизвести звук, возможно, политика автозапуска:', sound._src);
+                } else {
+                    console.log('Звук успешно воспроизведён:', sound._src);
+                }
+            } catch (err) {
+                console.error('Ошибка при воспроизведении звука:', err);
+            }
+        }
+
+        // Воспроизведение звука кнопки
+        function playButtonSound() {
+            playSound(buttonSound);
+        }
+
+        // Валидация имени игрока (проверка ввода пользователя)
+        function validatePlayerName(name) {
+            const regex = /^[a-zA-Zа-яА-Я0-9]{1,20}$/;
+            return regex.test(name);
+        }
+
+        // Сохранение прогресса в localStorage
+        function saveProgress() {
+            localStorage.setItem('puzzleProgress', JSON.stringify({
+                playerName: playerNameInput.value,
+                difficulty: size,
+                moves: moves,
+                timer: timer,
+                tiles: tiles.map(tile => ({ index: tile.index })),
+                emptyIndex: emptyIndex,
+                imageUrl: currentImageUrl
+            }));
+            console.log('Прогресс сохранён:', JSON.parse(localStorage.getItem('puzzleProgress')));
+        }
+
+        // Загрузка сохранённого прогресса
+        function loadProgress() {
+            const progress = JSON.parse(localStorage.getItem('puzzleProgress'));
+            if (progress) {
+                playerNameInput.value = progress.playerName || '';
+                difficultySelect.value = progress.difficulty || 3;
+                moves = progress.moves || 0;
+                timer = progress.timer || 0;
+                size = progress.difficulty || 3;
+                tiles = progress.tiles ? progress.tiles.map((t, i) => ({ index: t.index, element: null })) : [];
+                emptyIndex = progress.emptyIndex !== undefined ? progress.emptyIndex : size * size - 1;
+                currentImageUrl = progress.imageUrl || '';
+                movesDisplay.textContent = moves;
+                updateTimerDisplay();
+                if (tiles.length > 0) {
+                    continueMainButton.style.display = 'block';
+                }
+                console.log('Прогресс загружен:', progress);
+            }
+        }
+
+        // Закрытие туториала
+        function closeTutorial() {
+            tutorial.classList.add('hidden');
+            localStorage.setItem('tutorialSeen', 'true');
+            console.log('Туториал закрыт');
+            newGameMenu.style.display = 'flex';
+        }
+
+        // Показ туториала
+        function showTutorial() {
+            console.log('Открытие туториала');
+            if (tutorial) {
+                tutorial.classList.remove('hidden');
+                tutorial.style.display = 'flex';
+                console.log('Туториал отображен');
+            } else {
+                console.error('Элемент #tutorial не найден');
+            }
+        }
+
+        // Показ подсказки
+        function showHint() {
+            console.log('Показ подсказки');
+            if (hint && gameMenu.style.display === 'flex') {
+                if (hintTimeout) clearTimeout(hintTimeout);
+                playSound(hintSound);
+                hint.style.display = 'block';
+                hintTimeout = setTimeout(() => {
+                    hint.style.display = 'none';
+                    console.log('Подсказка скрыта через 5 секунд');
+                }, 5000);
+                console.log('Подсказка показана');
+            } else {
+                console.log('Подсказка недоступна вне игрового меню');
+            }
+        }
+
+        // Показ меню новой игры
+        function showNewGameMenu() {
+            console.log('Показ меню новой игры');
+            mainMenu.style.display = 'none';
+            newGameMenu.style.display = 'flex';
+            playerNameInput.value = '';
+            difficultySelect.value = '3';
+            tutorialButton.style.display = 'none';
+            showTutorial();
+        }
+
+        // Загрузка случайного изображения через API
+        async function fetchImage() {
+            let attempts = 0;
+            const maxAttempts = 5;
+            while (attempts < maxAttempts) {
+                try {
+                    const response = await fetch('https://api.thecatapi.com/v1/images/search');
+                    const data = await response.json();
+                    const url = data[0].url;
+                    if (!url.toLowerCase().endsWith('.gif')) {
+                        console.log(`Загружено статическое изображение: ${url}`);
+                        return url;
+                    }
+                    console.log(`Получен GIF (${url}), запрашиваем новое изображение`);
+                    attempts++;
+                } catch (error) {
+                    console.error('Ошибка загрузки изображения:', error);
+                    attempts++;
+                }
+            }
+            console.warn('Не удалось найти статическое изображение, используем запасное');
+            return 'https://via.placeholder.com/500';
+        }
+
+        // Запуск новой игры
+        async function startGame() {
+            const playerName = playerNameInput.value.trim();
+            if (!validatePlayerName(playerName)) {
+                alert('Имя игрока должно содержать только буквы и цифры, до 20 символов без пробелов.');
+                return;
+            }
+            console.log('Начало игры');
+            newGameMenu.style.display = 'none';
+            gameMenu.style.display = 'flex';
+            size = parseInt(difficultySelect.value); // Уровень сложности (3x3, 4x4, 5x5)
+            emptyIndex = size * size - 1;
+            moves = 0;
+            timer = 0;
+            movesDisplay.textContent = moves;
+            updateTimerDisplay();
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                timer++;
+                updateTimerDisplay();
+                saveProgress();
+            }, 1000); // Таймер
+            isGameActive = false;
+            tiles = Array.from({ length: size * size }, (_, i) => ({ index: i, element: null }));
+            const tileSize = Math.min(100, Math.floor((window.innerWidth * 0.8) / size));
+            board.style.gridTemplateColumns = `repeat(${size}, ${tileSize}px)`;
+            board.style.width = `${size * tileSize}px`;
+            board.style.height = `${size * tileSize}px`;
+            gameContainer.style.width = `${Math.max(300, size * tileSize + 40)}px`;
+            board.style.display = 'grid';
+            currentImageUrl = await fetchImage();
+            await createBoard();
+            playerInfo.textContent = `Игрок: ${playerName}, Сложность: ${size}x${size}`;
+            playerInfo.style.display = 'block';
+            document.getElementById('info').style.display = 'block';
+            document.getElementById('easter-egg').style.display = 'block';
+            tutorialButton.style.display = 'block';
+            // Запуск фоновой музыки после взаимодействия
+            if (!backgroundMusic.playing()) {
+                playSound(backgroundMusic);
+                console.log('Фоновая музыка запущена:', backgroundMusic.state());
+            }
+            console.log('Поле создано, показываю собранную картинку 3 секунды');
+            setTimeout(() => {
+                console.log('Перемешивание плиток');
+                shuffleTiles();
+                isGameActive = true;
+                saveProgress();
+                console.log('Игра началась');
+            }, 3000);
+        }
+
+        // Начало новой игры с очисткой прогресса
+        function startNewGame() {
+            console.log('Новая игра');
+            localStorage.removeItem('puzzleProgress');
+            tiles = [];
+            startGame();
+        }
+
+        // Продолжение сохранённой игры
+        async function continueGameMain() {
+            console.log('Продолжение игры');
+            const progress = JSON.parse(localStorage.getItem('puzzleProgress'));
+            if (progress) {
+                playerNameInput.value = progress.playerName || '';
+                difficultySelect.value = progress.difficulty || 3;
+                size = parseInt(progress.difficulty) || 3;
+                moves = progress.moves || 0;
+                timer = progress.timer || 0;
+                tiles = progress.tiles ? progress.tiles.map((t, i) => ({ index: t.index, element: null })) : Array.from({ length: size * size }, (_, i) => ({ index: i, element: null }));
+                emptyIndex = progress.emptyIndex !== undefined ? progress.emptyIndex : size * size - 1;
+                currentImageUrl = progress.imageUrl || '';
+                console.log('Восстановлено состояние:', { tiles: tiles.map(t => t.index), emptyIndex });
+                mainMenu.style.display = 'none';
+                gameMenu.style.display = 'flex';
+                movesDisplay.textContent = moves;
+                updateTimerDisplay();
+                const tileSize = Math.min(100, Math.floor((window.innerWidth * 0.8) / size));
+                board.style.gridTemplateColumns = `repeat(${size}, ${tileSize}px)`;
+                board.style.width = `${size * tileSize}px`;
+                board.style.height = `${size * tileSize}px`;
+                gameContainer.style.width = `${Math.max(300, size * tileSize + 40)}px`;
+                board.style.display = 'grid';
+                await createBoard();
+                updateBoardState();
+                playerInfo.textContent = `Игрок: ${playerNameInput.value}, Сложность: ${size}x${size}`;
+                playerInfo.style.display = 'block';
+                document.getElementById('info').style.display = 'block';
+                document.getElementById('easter-egg').style.display = 'block';
+                tutorialButton.style.display = 'block';
+                isGameActive = true;
+                if (timerInterval) clearInterval(timerInterval);
+                timerInterval = setInterval(() => {
+                    timer++;
+                    updateTimerDisplay();
+                    saveProgress();
+                }, 1000); // Таймер
+                // Запуск фоновой музыки при продолжении
+                if (!backgroundMusic.playing()) {
+                    playSound(backgroundMusic);
+                    console.log('Фоновая музыка запущена при продолжении:', backgroundMusic.state());
+                }
+                saveProgress();
+                logBoardState();
+            }
+        }
+
+        // Обновление отображения таймера
+        function updateTimerDisplay() {
+            const minutes = Math.floor(timer / 60).toString().padStart(2, '0');
+            const seconds = (timer % 60).toString().padStart(2, '0');
+            timerDisplay.textContent = `${minutes}:${seconds}`;
+        }
+
+        // Логирование состояния игрового поля
+        function logBoardState() {
+            let boardState = 'Текущее состояние поля:\n';
+            for (let i = 0; i < size; i++) {
+                let row = '';
+                for (let j = 0; j < size; j++) {
+                    const pos = i * size + j;
+                    const tile = tiles[pos];
+                    row += (tile.index === size * size - 1 ? '[ ]' : (tile.index + 1).toString().padStart(3)) + ' ';
+                }
+                boardState += row + '\n';
+            }
+            console.log(boardState);
+        }
+
+        // Создание игрового поля
+        async function createBoard() {
+            board.innerHTML = '';
+            const tileSize = Math.min(100, Math.floor((window.innerWidth * 0.8) / size));
+            tiles.forEach((tile, i) => {
+                const tileEl = document.createElement('div');
+                tileEl.classList.add('tile');
+                tileEl.dataset.pos = i.toString();
+                tileEl.style.width = `${tileSize}px`;
+                tileEl.style.height = `${tileSize}px`;
+                tileEl.style.backgroundImage = `url(${currentImageUrl})`;
+                tileEl.style.backgroundSize = `${size * tileSize}px ${size * tileSize}px`;
+                tileEl.addEventListener('click', () => {
+                    if (!isGameActive) return;
+                    const pos = parseInt(tileEl.dataset.pos);
+                    console.log(`Клик по плитке: pos=${pos}, tile=${tiles[pos].index + 1}`);
+                    logBoardState();
+                    moveTile(pos); // Обработка событий мыши
+                });
+                console.log(`Добавлен обработчик клика для позиции: ${i}`);
+                board.appendChild(tileEl);
+                tiles[i].element = tileEl;
+            });
+            document.removeEventListener('keydown', handleKeyPress);
+            document.addEventListener('keydown', handleKeyPress); // Обработка событий клавиатуры
+            updateBoardState();
+            console.log('Поле создано, tiles:', tiles.map(t => t.index));
+        }
+
+        // Перемешивание плиток
+        function shuffleTiles() {
+            console.log('Перемешивание плиток');
+            for (let k = 0; k < 3; k++) {
+                for (let i = tiles.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [tiles[i].index, tiles[j].index] = [tiles[j].index, tiles[i].index];
+                }
+            }
+            emptyIndex = tiles.findIndex(t => t.index === size * size - 1);
+            if (size === 3 && !isSolvable()) {
+                console.log('Конфигурация нерешаема, корректируем');
+                let idx1 = 0, idx2 = 1;
+                while (tiles[idx1].index === size * size - 1) idx1++;
+                while (tiles[idx2].index === size * size - 1 || idx2 === idx1) idx2++;
+                [tiles[idx1].index, tiles[idx2].index] = [tiles[idx2].index, tiles[idx1].index];
+            }
+            emptyIndex = tiles.findIndex(t => t.index === size * size - 1);
+            updateBoardState();
+            if (isSolved()) {
+                console.log('Поле решено после перемешивания, повторяем');
+                shuffleTiles();
+            } else {
+                console.log('Перемешивание завершено');
+                logBoardState();
+            }
+        }
+
+        // Проверка разрешимости головоломки
+        function isSolvable() {
+            let inversions = 0;
+            const tileOrder = tiles.map(t => t.index === size * size - 1 ? 0 : t.index + 1);
+            for (let i = 0; i < tileOrder.length - 1; i++) {
+                for (let j = i + 1; j < tileOrder.length; j++) {
+                    if (tileOrder[i] && tileOrder[j] && tileOrder[i] > tileOrder[j]) {
+                        inversions++;
+                    }
+                }
+            }
+            const emptyRowFromBottom = size - Math.floor(emptyIndex / size);
+            return (inversions + emptyRowFromBottom) % 2 === 0;
+        }
+
+        // Обновление состояния игрового поля
+        function updateBoardState() {
+            const tileSize = Math.min(100, Math.floor((window.innerWidth * 0.8) / size));
+            tiles.forEach((tile, pos) => {
+                if (tile.element) {
+                    tile.element.dataset.pos = pos.toString();
+                    tile.element.style.width = `${tileSize}px`;
+                    tile.element.style.height = `${tileSize}px`;
+                    if (tile.index === size * size - 1) {
+                        tile.element.classList.add('empty');
+                        tile.element.style.backgroundImage = '';
+                        tile.element.style.backgroundPosition = '';
+                    } else {
+                        tile.element.classList.remove('empty');
+                        tile.element.style.backgroundImage = `url(${currentImageUrl})`;
+                        tile.element.style.backgroundSize = `${size * tileSize}px ${size * tileSize}px`;
+                        tile.element.style.backgroundPosition = `${-(tile.index % size) * tileSize}px ${-Math.floor(tile.index / size) * tileSize}px`;
+                    }
+                }
+            });
+            console.log('Состояние обновлено, tiles:', tiles.map(t => t.index));
+        }
+
+        // Перемещение плитки (события мыши)
+        function moveTile(pos) {
+            if (!isGameActive || tiles[pos].index === size * size - 1) {
+                console.log(`Клик проигнорирован: pos=${pos}, isGameActive=${isGameActive}, isEmpty=${tiles[pos].index === size * size - 1}`);
+                return;
+            }
+            const emptyRow = Math.floor(emptyIndex / size);
+            const emptyCol = emptyIndex % size;
+            const tileRow = Math.floor(pos / size);
+            const tileCol = pos % size;
+            console.log(`Попытка переместить плитку: pos=${pos}, tile=${tiles[pos].index + 1}, tileRow=${tileRow}, tileCol=${tileCol}, emptyIndex=${emptyIndex}, emptyRow=${emptyRow}, emptyCol=${emptyCol}`);
+            if ((Math.abs(emptyRow - tileRow) === 1 && emptyCol === tileCol) ||
+                (Math.abs(emptyCol - tileCol) === 1 && emptyRow === tileRow)) {
+                console.log(`Перемещение разрешено: плитка ${tiles[pos].index + 1} (pos ${pos}) -> пустая клетка (pos ${emptyIndex})`);
+                [tiles[emptyIndex].index, tiles[pos].index] = [tiles[pos].index, tiles[emptyIndex].index];
+                emptyIndex = pos;
+                moves++;
+                movesDisplay.textContent = moves;
+                playSound(moveSound);
+                updateBoardState();
+                logBoardState();
+                saveProgress();
+                if (isSolved()) {
+                    isGameActive = false;
+                    clearInterval(timerInterval);
+                    const score = Math.max(0, 10000 - (moves * 10) - timer); // Система очков
+                    playSound(winSound);
+                    setTimeout(() => {
+                        alert(`Поздравляем, ${playerNameInput.value}! Вы собрали головоломку! Ходы: ${moves}, Время: ${timer} сек, Очки: ${score}`);
+                        exitToMenu();
+                    }, 500);
+                }
+            } else {
+                console.log(`Перемещение запрещено: плитка ${tiles[pos].index + 1} (pos ${pos}) не соседствует с пустой клеткой (pos ${emptyIndex})`);
+            }
+        }
+
+        // Проверка, решена ли головоломка
+        function isSolved() {
+            const solved = tiles.every((tile, i) => tile.index === i);
+            console.log(`Проверка решения: solved=${solved}, tiles=${JSON.stringify(tiles.map(t => t.index))}`);
+            return solved;
+        }
+
+        // Обработка событий клавиатуры
+        function handleKeyPress(e) {
+            if (!isGameActive) return;
+            let newEmptyIndex = emptyIndex;
+            if (e.key === 'ArrowUp' && emptyIndex >= size) newEmptyIndex -= size;
+            if (e.key === 'ArrowDown' && emptyIndex < size * (size - 1)) newEmptyIndex += size;
+            if (e.key === 'ArrowLeft' && emptyIndex % size > 0) newEmptyIndex -= 1;
+            if (e.key === 'ArrowRight' && emptyIndex % size < size - 1) newEmptyIndex += 1;
+            if (newEmptyIndex !== emptyIndex) {
+                console.log(`Стрелка: перемещение пустой клетки с pos ${emptyIndex} на pos ${newEmptyIndex}`);
+                moveTile(newEmptyIndex);
+            }
+        }
+
+        // Активация пасхалки
+        function playEasterEgg() {
+            playSound(easterSound);
+            alert('Пасхалка разработчика: пазл собран!');
+            solvePuzzle();
+        }
+
+        // Автоматическое решение головоломки
+        function solvePuzzle() {
+            for (let i = 0; i < tiles.length; i++) {
+                tiles[i].index = i;
+            }
+            emptyIndex = size * size - 1;
+            updateBoardState();
+            logBoardState();
+            saveProgress();
+            isGameActive = false;
+            clearInterval(timerInterval);
+            const score = Math.max(0, 10000 - (moves * 10) - timer); // Система очков
+            playSound(winSound);
+            setTimeout(() => {
+                alert(`Поздравляем, ${playerNameInput.value}! Вы собрали пазл! Ходы: ${moves}, Время: ${timer} сек, Очки: ${score}`);
+            }, 500);
+        }
+
+        // Сброс игры
+        function resetGame() {
+            console.log('Сброс игры');
+            moves = 0;
+            timer = 0;
+            movesDisplay.textContent = moves;
+            updateTimerDisplay();
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                timer++;
+                updateTimerDisplay();
+                saveProgress();
+            }, 1000); // Таймер
+            shuffleTiles();
+            isGameActive = true;
+            saveProgress();
+            logBoardState();
+        }
+
+        // Выход в главное меню
+        function exitToMenu() {
+            console.log('Выход в меню');
+            if (timerInterval) clearInterval(timerInterval);
+            if (hintTimeout) clearTimeout(hintTimeout);
+            hint.style.display = 'none';
+            isGameActive = false;
+            board.innerHTML = '';
+            board.style.display = 'none';
+            movesDisplay.textContent = moves;
+            updateTimerDisplay();
+            document.getElementById('info').style.display = 'none';
+            document.getElementById('easter-egg').style.display = 'none';
+            tutorialButton.style.display = 'none';
+            playerInfo.style.display = 'none';
+            mainMenu.style.display = 'flex';
+            newGameMenu.style.display = 'none';
+            gameMenu.style.display = 'none';
+            gameContainer.style.width = 'clamp(300px, 80vw, 500px)'; // Адаптивный дизайн
+            continueMainButton.style.display = localStorage.getItem('puzzleProgress') ? 'block' : 'none';
+            saveProgress();
+            backgroundMusic.stop(); // Остановка фоновой музыки
+            console.log('Фоновая музыка остановлена:', backgroundMusic.state());
+        }
+
+        // Загрузка прогресса при старте
+        loadProgress();
+    </script>
+</body>
+</html>
